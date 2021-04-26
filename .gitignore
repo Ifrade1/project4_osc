@@ -1,3 +1,7 @@
 .vscode/*
 main_client
 main_server
+project4_temp/chat_client
+project4_temp/chat_server
+project4_temp/chat_client_full
+project4_temp/chat_server_full

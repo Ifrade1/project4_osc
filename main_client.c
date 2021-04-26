@@ -6,10 +6,10 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <netdb.h> 
+#include <netdb.h>
 #include <pthread.h>
 
-#define PORT_NUM 1004
+#define PORT_NUM 33333
 
 void error(const char *msg)
 {
@@ -21,8 +21,7 @@ typedef struct _ThreadArgs {
 	int clisockfd;
 } ThreadArgs;
 
-void* thread_main_recv(void* args)
-{
+void* thread_main_recv(void* args) {
 	pthread_detach(pthread_self());
 
 	int sockfd = ((ThreadArgs*) args)->clisockfd;
@@ -73,8 +72,7 @@ void* thread_main_send(void* args)
 	return NULL;
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
 	if (argc < 2) error("Please speicify hostname");
 
 	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -89,7 +87,7 @@ int main(int argc, char *argv[])
 
 	printf("Try connecting to %s...\n", inet_ntoa(serv_addr.sin_addr));
 
-	int status = connect(sockfd, 
+	int status = connect(sockfd,
 			(struct sockaddr *) &serv_addr, slen);
 	if (status < 0) error("ERROR connecting");
 
@@ -97,7 +95,7 @@ int main(int argc, char *argv[])
 	pthread_t tid2;
 
 	ThreadArgs* args;
-	
+
 	args = (ThreadArgs*) malloc(sizeof(ThreadArgs));
 	args->clisockfd = sockfd;
 	pthread_create(&tid1, NULL, thread_main_send, (void*) args);
@@ -113,4 +111,3 @@ int main(int argc, char *argv[])
 
 	return 0;
 }
-
