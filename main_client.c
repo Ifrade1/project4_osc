@@ -11,6 +11,9 @@
 
 #define PORT_NUM 33333
 
+/** User name the client reports to the server */
+char user_name[25];
+
 void error(const char *msg)
 {
 	perror(msg);
@@ -20,7 +23,9 @@ void error(const char *msg)
 typedef struct _ThreadArgs {
 	int clisockfd;
 } ThreadArgs;
-
+/**
+ * Thread function that receives and prints messages from other clients
+ */
 void* thread_main_recv(void* args) {
 	pthread_detach(pthread_self());
 
@@ -42,7 +47,9 @@ void* thread_main_recv(void* args) {
 
 	return NULL;
 }
-
+/**
+ * Thread function that handles user input and sending messages to the server
+ */
 void* thread_main_send(void* args)
 {
 	pthread_detach(pthread_self());
@@ -52,21 +59,23 @@ void* thread_main_send(void* args)
 
 	// keep sending messages to the server
 	char buffer[256];
+	// Message that is sent to the server
+	char message[512];
 	int n;
 
 	while (1) {
 		// You will need a bit of control on your terminal
 		// console or GUI to have a nice input window.
-		//printf("\nPlease enter the message: ");
+		printf("\nMessage: ");
 		memset(buffer, 0, 256);
-		fgets(buffer, 255, stdin);
+		memset(message, 0, 512);
+		fgets(buffer, 256, stdin);
 
-		if (strlen(buffer) == 1) buffer[0] = '\0';
+		if (strlen(buffer) == 1) break;
 
-		n = send(sockfd, buffer, strlen(buffer), 0);
+		sprintf(message, "[%s]: %s\0", user_name, buffer);
+		n = send(sockfd, message, strlen(message), 0);
 		if (n < 0) error("ERROR writing to socket");
-
-		if (n == 0) break; // we stop transmission when user type empty string
 	}
 
 	return NULL;
@@ -74,6 +83,17 @@ void* thread_main_send(void* args)
 
 int main(int argc, char *argv[]) {
 	if (argc < 2) error("Please speicify hostname");
+
+	// Get the username the user wants
+	printf("Enter a username: ");
+	fgets(user_name, 25, stdin);
+	strtok(user_name, "\n");
+	if (strlen(user_name) == 1) {
+		printf("No username specified, exiting...\n");
+		return 1;
+	} else {
+		printf("Username set to %s\n", user_name);
+	}
 
 	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sockfd < 0) error("ERROR opening socket");

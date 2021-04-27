@@ -80,16 +80,15 @@ void broadcast(int fromfd, char* message)
 	struct sockaddr_in cliaddr;
 	socklen_t clen = sizeof(cliaddr);
 	if (getpeername(fromfd, (struct sockaddr*)&cliaddr, &clen) < 0) error("ERROR Unknown sender!");
+	char buffer[512];
 
 	// traverse through all connected clients
 	USR* cur = head;
 	while (cur != NULL) {
 		// check if cur is not the one who sent the message
 		if (cur->clisockfd != fromfd) {
-			char buffer[512];
-
 			// prepare message
-			sprintf(buffer, "[%s]:%s", inet_ntoa(cliaddr.sin_addr), message);
+			sprintf(buffer, "%s", message);
 			int nmsg = strlen(buffer);
 
 			// send!
