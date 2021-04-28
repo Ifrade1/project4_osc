@@ -11,6 +11,14 @@
 
 #define PORT_NUM 33333
 #define MAX_HIST 10
+
+
+#define  RED     "\x1b[31m"
+#define  GREEN   "\x1b[32m"
+#define  YELLOW  "\x1b[33m"
+#define  BLUE    "\x1b[34m"
+#define  MAGENTA "\x1b[35m"
+#define  CYAN    "\x1b[36m"
 /** User name the client reports to the server */
 char user_name[25];
 /** History for the chat. Printed when a message received so the cli is updated */
@@ -20,6 +28,31 @@ int num_msg = 0;
 /** Room number the user wants to connect to */
 int room_num;
 
+void color(int random){
+	switch(random){
+		case 0:
+			printf("\x1b[0m");
+			break;
+		case 1:
+			printf(RED "");
+			break;
+		case 2:
+			printf(GREEN "");
+			break;
+		case 3:
+			printf(YELLOW "");
+			break;
+		case 4:
+			printf(BLUE "");
+			break;
+		case 5:
+			printf(MAGENTA "");
+			break;
+		case 6:
+			printf(CYAN "");
+			break;
+	}
+}
 void error(const char *msg)
 {
 	perror(msg);
@@ -37,7 +70,7 @@ void* thread_main_recv(void* args) {
 
 	int sockfd = ((ThreadArgs*) args)->clisockfd;
 	free(args);
-
+	
 	// keep receiving and displaying message from server
 	char buffer[512];
 	int n;
@@ -106,6 +139,9 @@ void* thread_main_send(void* args)
 }
 
 int main(int argc, char *argv[]) {
+	srand(time(NULL));
+	int pick = rand() % 7;
+	color(pick);
 	if (argc < 2) error("Please speicify hostname");
 	if (argc == 3) {
 		room_num = atoi(argv[2]);
