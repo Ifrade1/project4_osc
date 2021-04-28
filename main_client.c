@@ -10,9 +10,15 @@
 #include <pthread.h>
 
 #define PORT_NUM 33333
-
+#define MAX_HIST 10
 /** User name the client reports to the server */
 char user_name[25];
+/** History for the chat. Printed when a message received so the cli is updated */
+char * chat_history[MAX_HIST];
+/** Current message index and how many messages are in the history */
+int num_msg = 0;
+/** Room number the user wants to connect to */
+int room_num;
 
 void error(const char *msg)
 {
@@ -36,13 +42,31 @@ void* thread_main_recv(void* args) {
 	char buffer[512];
 	int n;
 
-	n = recv(sockfd, buffer, 512, 0);
-	while (n > 0) {
+	//n = recv(sockfd, buffer, 512, 0);
+	while (1) {
 		memset(buffer, 0, 512);
+		// This should be blocking on the thread
 		n = recv(sockfd, buffer, 512, 0);
 		if (n < 0) error("ERROR recv() failed");
+		// Clear the CLI and print the history along with the message
+		system("clear");
+		for (int i = 0; i < num_msg; i++) {
+			printf("%s", chat_history[i]);
+		}
+		printf("%s", buffer);
+		// Add the message to the history
+		chat_history[num_msg] = malloc(strlen(buffer));
+		strcpy(chat_history[num_msg], buffer);
 
-		printf("\n%s\n", buffer);
+		// Shift message history back if full
+		if (num_msg >= MAX_HIST - 1) {
+			free(chat_history[0]);
+			for (int i = 1; i < MAX_HIST; i++) {
+				chat_history[i-1] = chat_history[i];
+			}
+		} else {
+			num_msg++;
+		}
 	}
 
 	return NULL;
@@ -66,7 +90,7 @@ void* thread_main_send(void* args)
 	while (1) {
 		// You will need a bit of control on your terminal
 		// console or GUI to have a nice input window.
-		printf("\nMessage: ");
+		printf("Message: ");
 		memset(buffer, 0, 256);
 		memset(message, 0, 512);
 		fgets(buffer, 256, stdin);
@@ -83,7 +107,13 @@ void* thread_main_send(void* args)
 
 int main(int argc, char *argv[]) {
 	if (argc < 2) error("Please speicify hostname");
-
+	if (argc == 3) {
+		room_num = atoi(argv[2]);
+		printf("Attempting to join room #%d\n", room_num);
+	} else {
+		room_num = 0;
+		printf("No room specified, joining room #%d\n", room_num);
+	}
 	// Get the username the user wants
 	printf("Enter a username: ");
 	fgets(user_name, 25, stdin);
@@ -109,7 +139,16 @@ int main(int argc, char *argv[]) {
 
 	int status = connect(sockfd,
 			(struct sockaddr *) &serv_addr, slen);
-	if (status < 0) error("ERROR connecting");
+	if (status < 0) {
+		error("ERROR connecting");
+		return -1;
+	} else {
+		// Tell the server to assign the user a room
+		char buf[64];
+		sprintf(buf, "JOIN ROOM %d", room_num);
+		int n = send(sockfd, buf, 64, 0);
+		if (n < 0) printf("Could not connect with the room!");
+	}
 
 	pthread_t tid1;
 	pthread_t tid2;
@@ -128,6 +167,9 @@ int main(int argc, char *argv[]) {
 	pthread_join(tid1, NULL);
 
 	close(sockfd);
-
+	// Clear all alloced memory
+	for (int i = 0; i < num_msg; i++) {
+		free(chat_history[i]);
+	}
 	return 0;
 }

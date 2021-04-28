@@ -17,8 +17,10 @@ void error(const char *msg) {
 
 typedef struct _USR {
 	int clisockfd;		// socket file descriptor
+	int room;			/** Room ID for user */
 	struct _USR* next;	// for linked list queue
 } USR;
+
 
 USR *head = NULL;
 USR *tail = NULL;
@@ -74,6 +76,9 @@ void remove_item(int clisockfd) {
 	}
 }
 
+/**
+ * Send the message to all who share the same room
+ */
 void broadcast(int fromfd, char* message)
 {
 	// figure out sender address
@@ -81,14 +86,25 @@ void broadcast(int fromfd, char* message)
 	socklen_t clen = sizeof(cliaddr);
 	if (getpeername(fromfd, (struct sockaddr*)&cliaddr, &clen) < 0) error("ERROR Unknown sender!");
 	char buffer[512];
-
-	// traverse through all connected clients
+	int room = 0;
+	// get the room ID from the user in the user list
+	//TODO: This might be better done in a function
 	USR* cur = head;
 	while (cur != NULL) {
+		if (cur->clisockfd == fromfd) {
+			 room = cur->room;
+			 break;
+		}
+		cur = cur->next;
+	}
+	// traverse through all connected clients
+	// send message to users who share the same room id
+	cur = head;
+	while (cur != NULL) {
 		// check if cur is not the one who sent the message
-		if (cur->clisockfd != fromfd) {
+		if (cur->clisockfd != fromfd && cur->room == room) {
 			// prepare message
-			sprintf(buffer, "%s", message);
+			sprintf(buffer, "[ROOM %d] %s", room, message);
 			int nmsg = strlen(buffer);
 
 			// send!
@@ -102,6 +118,7 @@ void broadcast(int fromfd, char* message)
 
 typedef struct _ThreadArgs {
 	int clisockfd;
+	int room_num;
 } ThreadArgs;
 
 void* thread_main(void* args) {
@@ -117,15 +134,34 @@ void* thread_main(void* args) {
 	char buffer[256];
 	int nsen, nrcv;
 
-	nrcv = recv(clisockfd, buffer, 255, 0);
-	if (nrcv < 0) error("ERROR recv() failed");
-
-	while (nrcv > 0) {
+	while (1) {
 		// we send the message to everyone except the sender
-		broadcast(clisockfd, buffer);
 
 		nrcv = recv(clisockfd, buffer, 255, 0);
-		if (nrcv < 0) error("ERROR recv() failed");
+		if (nrcv < 0) {
+			error("ERROR recv() failed");
+		}
+
+		if (strstr(buffer, "JOIN ROOM") != NULL) {
+			// atoi looks for the first int in string to parse
+			char * tmp;
+			tmp = strtok(buffer, "JOIN ROOM ");
+			int room = atoi(tmp);
+			printf("ID %d is changing their room to %d\n", clisockfd, room);
+			USR * cur = head;
+			// TODO: This might be better put in a function
+			while(cur != NULL) {
+				if (clisockfd == cur->clisockfd) {
+					cur->room = room; 
+					break;
+				}
+				cur = cur->next;
+			}
+		} else {
+			// Send message if not server command
+			broadcast(clisockfd, buffer);
+		}
+		memset(buffer, 0, 512);
 	}
 
 	if (nrcv == 0) {
