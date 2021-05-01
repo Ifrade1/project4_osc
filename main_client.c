@@ -9,8 +9,7 @@
 #include <netdb.h>
 #include <pthread.h>
 
-#define PORT_NUM 33333
-#define MAX_HIST 10
+#define PORT_NUM 33336
 
 
 #define  RED     "\x1b[31m"
@@ -21,11 +20,6 @@
 #define  CYAN    "\x1b[36m"
 /** User name the client reports to the server */
 char user_name[25];
-/** History for the chat. Printed when a message received so the cli is updated */
-char * chat_history[MAX_HIST];
-/** Current message index and how many messages are in the history */
-int num_msg = 0;
-/** Room number the user wants to connect to */
 int room_num;
 
 void color(int random){
@@ -70,36 +64,18 @@ void* thread_main_recv(void* args) {
 
 	int sockfd = ((ThreadArgs*) args)->clisockfd;
 	free(args);
-	
+
 	// keep receiving and displaying message from server
 	char buffer[512];
 	int n;
 
-	//n = recv(sockfd, buffer, 512, 0);
-	while (1) {
+	n = recv(sockfd, buffer, 512, 0);
+	while (n > 0) {
 		memset(buffer, 0, 512);
-		// This should be blocking on the thread
 		n = recv(sockfd, buffer, 512, 0);
 		if (n < 0) error("ERROR recv() failed");
-		// Clear the CLI and print the history along with the message
-		system("clear");
-		for (int i = 0; i < num_msg; i++) {
-			printf("%s", chat_history[i]);
-		}
-		printf("%s", buffer);
-		// Add the message to the history
-		chat_history[num_msg] = malloc(strlen(buffer));
-		strcpy(chat_history[num_msg], buffer);
 
-		// Shift message history back if full
-		if (num_msg >= MAX_HIST - 1) {
-			free(chat_history[0]);
-			for (int i = 1; i < MAX_HIST; i++) {
-				chat_history[i-1] = chat_history[i];
-			}
-		} else {
-			num_msg++;
-		}
+		printf("\n%s\n", buffer);
 	}
 
 	return NULL;
@@ -107,8 +83,7 @@ void* thread_main_recv(void* args) {
 /**
  * Thread function that handles user input and sending messages to the server
  */
-void* thread_main_send(void* args)
-{
+void* thread_main_send(void* args) {
 	pthread_detach(pthread_self());
 
 	int sockfd = ((ThreadArgs*) args)->clisockfd;
@@ -123,7 +98,7 @@ void* thread_main_send(void* args)
 	while (1) {
 		// You will need a bit of control on your terminal
 		// console or GUI to have a nice input window.
-		printf("Message: ");
+		printf("\nMessage: ");
 		memset(buffer, 0, 256);
 		memset(message, 0, 512);
 		fgets(buffer, 256, stdin);
@@ -150,6 +125,7 @@ int main(int argc, char *argv[]) {
 		room_num = 0;
 		printf("No room specified, joining room #%d\n", room_num);
 	}
+
 	// Get the username the user wants
 	printf("Enter a username: ");
 	fgets(user_name, 25, stdin);
@@ -203,9 +179,6 @@ int main(int argc, char *argv[]) {
 	pthread_join(tid1, NULL);
 
 	close(sockfd);
-	// Clear all alloced memory
-	for (int i = 0; i < num_msg; i++) {
-		free(chat_history[i]);
-	}
+
 	return 0;
 }
