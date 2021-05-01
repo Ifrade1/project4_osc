@@ -9,12 +9,14 @@
 #include <pthread.h>
 
 #define PORT_NUM 33336
-#define  RED     "\x1b[31m"
-#define  GREEN   "\x1b[32m"
-#define  YELLOW  "\x1b[33m"
-#define  BLUE    "\x1b[34m"
-#define  MAGENTA "\x1b[35m"
-#define  CYAN    "\x1b[36m"
+#define RED     "\x1b[31m"
+#define GREEN   "\x1b[32m"
+#define YELLOW  "\x1b[33m"
+#define BLUE    "\x1b[34m"
+#define MAGENTA "\x1b[35m"
+#define CYAN    "\x1b[36m"
+#define MAX_ROOMS 5
+#define MAX_USERS 5
 
 void error(const char *msg) {
 	perror(msg);
@@ -29,6 +31,9 @@ typedef struct _USR {
 
 USR *head = NULL;
 USR *tail = NULL;
+
+int rooms[MAX_ROOMS][MAX_USERS];
+int count = 0;
 
 // print list of clisockfd's
 void print_list() {
@@ -77,6 +82,43 @@ void remove_item(int clisockfd) {
 		prev->next = temp->next;
 
 		free(temp);
+	}
+}
+
+void initRooms() {
+	for (int i = 0; i < MAX_ROOMS; i++) {
+		rooms[i][0] = -1;
+		rooms[i][1] = 0;
+	}
+}
+
+void updateRooms(int clisockfd) {
+	// when user is removed update the rooms
+	int room;
+	USR *cur = head;
+	while (cur != NULL) {
+		if (cur->clisockfd == clisockfd) {
+			room = cur->room;
+		}
+		cur = cur->next;
+	}
+
+	for (int i = 0; i < MAX_ROOMS; i++) {
+		if (rooms[i][0] != -1) {
+			if (room == rooms[i][0]) {
+				rooms[i][1] -= 1;
+			}
+		}
+	}
+}
+
+void listRooms() {
+	// list the rooms and the number of people in them
+	// print to client terminal:("Server says following options are available:\n")
+	for (int i = 0; i < MAX_ROOMS; i++) {
+		if (rooms[i][0] != -1 && rooms[i][1] != 0) {
+			// print to client terminal: ("Room %d: %d people\n", rooms[i][0], rooms[i][1])
+		}
 	}
 }
 
@@ -150,6 +192,14 @@ void* thread_main(void* args) {
 			char *temp;
 			temp = strtok(buffer, "JOIN ROOM ");
 			int room = atoi(temp);
+			if (room == -1 && count < MAX_ROOMS) {
+				rooms[count][0] = count;
+				rooms[count][1]++;
+				room = rooms[count][0];
+				count++;
+			} else if (MAX_ROOMS >= count) {
+				room = 0;
+			}
 			printf("ID %d is changing their room to %d\n", clisockfd, room);
 			USR * cur = head;
 			while (cur != NULL) {
@@ -170,6 +220,7 @@ void* thread_main(void* args) {
 
 	if (nrcv == 0) {
 		remove_item(clisockfd);
+		updateRooms(clisockfd);
 		print_list();
 	}
 
@@ -193,6 +244,8 @@ int main(int argc, char *argv[]) {
 
 	int status = bind(sockfd, (struct sockaddr *) &serv_addr, slen);
 	if (status < 0) error("ERROR on binding");
+
+	initRooms(); // initialize all rooms to -1
 
 	listen(sockfd, 5); // maximum number of connections = 5
 

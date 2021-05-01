@@ -119,8 +119,13 @@ int main(int argc, char *argv[]) {
 	color(pick);
 	if (argc < 2) error("Please speicify hostname");
 	if (argc == 3) {
-		room_num = atoi(argv[2]);
-		printf("Attempting to join room #%d\n", room_num);
+		if (argv[2] == "new") {
+			room_num = -1;
+			printf("Attempting to join new room\n");
+		} else {
+			room_num = atoi(argv[2]);
+			printf("Attempting to join room #%d\n", room_num);
+		}
 	} else {
 		room_num = 0;
 		printf("No room specified, joining room #%d\n", room_num);
@@ -160,6 +165,9 @@ int main(int argc, char *argv[]) {
 		sprintf(buf, "JOIN ROOM %d", room_num);
 		int n = send(sockfd, buf, 64, 0);
 		if (n < 0) printf("Could not connect with the room!");
+		// add something here to print:
+		// "Connected to IP-address-of-serverwith new room number XXX"
+		
 	}
 
 	pthread_t tid1;
