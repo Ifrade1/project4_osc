@@ -114,32 +114,26 @@ void* thread_main_send(void* args) {
 }
 
 int main(int argc, char *argv[]) {
+	int arg = 0;			// 0 connect normally, 1 get room list and prompt, 2 create new room
+	int valid_connection = 0;	// Whether the server actually is going to let us connect, sent by the server
 	srand(time(NULL));
 	int pick = rand() % 7;
 	color(pick);
 	if (argc < 2) error("Please speicify hostname");
 	if (argc == 3) {
-		if (argv[2] == "new") {
+		if (strcmp(argv[2], "new") == 0) {
 			room_num = -1;
 			printf("Attempting to join new room\n");
+			arg = 2;
 		} else {
 			room_num = atoi(argv[2]);
 			printf("Attempting to join room #%d\n", room_num);
+			arg = 0;
 		}
 	} else {
 		room_num = 0;
-		printf("No room specified, joining room #%d\n", room_num);
-	}
-
-	// Get the username the user wants
-	printf("Enter a username: ");
-	fgets(user_name, 25, stdin);
-	strtok(user_name, "\n");
-	if (strlen(user_name) == 1) {
-		printf("No username specified, exiting...\n");
-		return 1;
-	} else {
-		printf("Username set to %s\n", user_name);
+		printf("No room specified, Getting room list...\n");
+		arg = 1;
 	}
 
 	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -154,20 +148,82 @@ int main(int argc, char *argv[]) {
 
 	printf("Try connecting to %s...\n", inet_ntoa(serv_addr.sin_addr));
 
-	int status = connect(sockfd,
-			(struct sockaddr *) &serv_addr, slen);
+	int status = connect(sockfd, (struct sockaddr *) &serv_addr, slen);
+
 	if (status < 0) {
 		error("ERROR connecting");
 		return -1;
 	} else {
-		// Tell the server to assign the user a room
 		char buf[64];
-		sprintf(buf, "JOIN ROOM %d", room_num);
-		int n = send(sockfd, buf, 64, 0);
-		if (n < 0) printf("Could not connect with the room!");
-		// add something here to print:
-		// "Connected to IP-address-of-serverwith new room number XXX"
+		if (arg == 0) {
+			char buffer[255];
+			// Tell the server to assign the user a room	
+			sprintf(buf, "JOIN ROOM %d", room_num);
+			int n = send(sockfd, buf, 64, 0);
+			if (n < 0) printf("Could not connect with the room!");
+			n = send(sockfd, buf, 64, 0);
+			if (n < 0) {
+				printf("Could not connect with the room!");
+				return -1;
+			}
+			// wait for response
+			recv(sockfd, buffer, 255, 0);
+			printf("%s\n", buffer);
+			// Server disconnects us but we can still send a message and set
+			// a username, so we use this to gracefully stop the program before that happens
+			if (strstr(buffer, "ERROR") != NULL)
+				valid_connection = -1;
+		} else if (arg == 1) {
+			sprintf(buf, "!LIST ROOM\n");
+			char buffer[255];
+			char room_get[16];
+			// send the room command then wait for a reply
+			int n = send(sockfd, buf, 64, 0);
+			n = recv(sockfd, buffer, 255, 0);
+			printf("%s\n", buffer);
+			printf("Enter room to join: ");
+			fgets(room_get, 16, stdin);
+
+			room_num = atoi(room_get);
+			sprintf(buf, "JOIN ROOM %d", room_num);
+			n = send(sockfd, buf, 64, 0);
+			if (n < 0) {
+				printf("Could not connect with the room!");
+				return -1;
+			}
+			// wait for response
+			recv(sockfd, buffer, 255, 0);
+			printf("%s\n", buffer);
+			// Server disconnects us but we can still send a message and set
+			// a username, so we use this to gracefully stop the program before that happens
+			if (strstr(buffer, "ERROR") != NULL)
+				valid_connection = -1;
+		} else if (arg == 2) {
+			char buffer[255];
+			// Tell server to create a new room
+			sprintf(buf, "!NEW ROOM");
+			int n = send(sockfd, buf, 64, 0);
+			recv(sockfd, buffer, 255, 0);
+			printf("%s\n", buffer);
+			if (strstr(buffer, "ERROR") != NULL)
+				valid_connection = -1;
+		}
 		
+	}
+	if (valid_connection == -1)
+	{
+		printf("Kicked off from the server.\n");
+		return -1;
+	}
+	// Get the username the user wants
+	printf("Enter a username: ");
+	fgets(user_name, 25, stdin);
+	strtok(user_name, "\n");
+	if (strlen(user_name) == 1) {
+		printf("No username specified, exiting...\n");
+		return 1;
+	} else {
+		printf("Username set to %s\n", user_name);
 	}
 
 	pthread_t tid1;

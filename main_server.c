@@ -32,9 +32,11 @@ typedef struct _USR {
 USR *head = NULL;
 USR *tail = NULL;
 
-int rooms[MAX_ROOMS][MAX_USERS];
-int count = 0;
-
+/* Room idx corresponds to room number
+ * value corresponds to number of users in room
+ * -1 for empty room or invalid
+ */
+int rooms[MAX_ROOMS];
 // print list of clisockfd's
 void print_list() {
 	USR *temp = head;
@@ -45,7 +47,6 @@ void print_list() {
 	}
 	printf("\n");
 }
-
 void add_tail(int newclisockfd) {
 	if (head == NULL) {
 		head = (USR*) malloc(sizeof(USR));
@@ -87,28 +88,27 @@ void remove_item(int clisockfd) {
 
 void initRooms() {
 	for (int i = 0; i < MAX_ROOMS; i++) {
-		rooms[i][0] = -1;
-		rooms[i][1] = 0;
+		rooms[i] = -1;
 	}
 }
 
+/**
+ * Decrement the user count for a room for when a user leaves the chat
+ */
 void updateRooms(int clisockfd) {
 	// when user is removed update the rooms
-	int room;
+	int room = 0;
 	USR *cur = head;
 	while (cur != NULL) {
 		if (cur->clisockfd == clisockfd) {
 			room = cur->room;
+			break;
 		}
 		cur = cur->next;
 	}
-
-	for (int i = 0; i < MAX_ROOMS; i++) {
-		if (rooms[i][0] != -1) {
-			if (room == rooms[i][0]) {
-				rooms[i][1] -= 1;
-			}
-		}
+	rooms[room]--;
+	if (rooms[room] == 0) {
+		rooms[room] = -1;
 	}
 }
 
@@ -116,7 +116,7 @@ void listRooms() {
 	// list the rooms and the number of people in them
 	// print to client terminal:("Server says following options are available:\n")
 	for (int i = 0; i < MAX_ROOMS; i++) {
-		if (rooms[i][0] != -1 && rooms[i][1] != 0) {
+		if (rooms[i] != -1 && rooms[i] != 0) {
 			// print to client terminal: ("Room %d: %d people\n", rooms[i][0], rooms[i][1])
 		}
 	}
@@ -172,6 +172,8 @@ typedef struct _ThreadArgs {
 } ThreadArgs;
 
 void* thread_main(void* args) {
+	// Exit status determines what functions are executed at disconnect
+	int exit_status = 0;
 	// make sure thread resources are deallocated upon return
 	pthread_detach(pthread_self());
 
@@ -182,48 +184,123 @@ void* thread_main(void* args) {
 	//-------------------------------
 	// Now, we receive/send messages
 	char buffer[256];
-	int nrcv;
+	int nrcv = 999;
+	memset(buffer, 0, 255);
 
-	nrcv = recv(clisockfd, buffer, 255, 0);
-	if (nrcv < 0) error("ERROR recv() failed");
-
+	//nrcv = recv(clisockfd, buffer, 255, 0);
+	//if (nrcv < 0) error("ERROR recv() failed");
+	char send_buffer[255];
+	memset(send_buffer, 0, 255);
 	while (nrcv > 0) {
 		if (strstr(buffer, "JOIN ROOM") != NULL) {
+			printf("User is attempting to join a room.\n");
+			printf("%s\n", buffer);
 			char *temp;
 			temp = strtok(buffer, "JOIN ROOM ");
-			int room = atoi(temp);
-			if (room == -1 && count < MAX_ROOMS) {
-				rooms[count][0] = count;
-				rooms[count][1]++;
-				room = rooms[count][0];
-				count++;
-			} else if (MAX_ROOMS >= count) {
-				room = 0;
+			int room_num = atoi(temp);
+			// Check if the room is valid before allowing to join
+			if (room_num >= MAX_ROOMS) {
+				printf("ERROR -3: User tried to join an invalid room, disconnecting...\n");
+				sprintf(send_buffer, "ERROR -3: Room is outside of the max boundries.\n");
+				send(clisockfd, send_buffer, 255, 0);
+				exit_status = -1;
+				break;
 			}
-			printf("ID %d is changing their room to %d\n", clisockfd, room);
-			USR * cur = head;
-			while (cur != NULL) {
-				if (clisockfd == cur->clisockfd) {
-					cur->room = room;
+			if (rooms[room_num] != -1) {
+				rooms[room_num]++;
+				printf("ID %d is changing their room to %d\n", clisockfd, room_num);
+				USR * cur = head;
+				while (cur != NULL) {
+					if (clisockfd == cur->clisockfd) {
+						cur->room = room_num;
+						break;
+					}
+					cur = cur->next;
+				}
+				sprintf(send_buffer, "Welcome to room #%d.\n", room_num);
+				send(clisockfd, send_buffer, 255, 0);
+			} else if (rooms[room_num] >= MAX_USERS) {
+				// Room is invalid disconnect the user
+				sprintf(send_buffer, "ERROR -1: Room is full, please connect to a different room\n");
+				send(clisockfd, send_buffer, 255, 0);
+				exit_status = -1;
+				break;
+			} else {
+				sprintf(send_buffer, "ERROR -2: Room is currently not registered.\nConnect with the 'new' keyword.\n");
+				send(clisockfd, send_buffer, 255, 0);
+				exit_status = -1;
+				break;
+			}
+		
+		} else if (strstr(buffer, "!LIST ROOM") != NULL) {
+			// Send a list of rooms to the client
+			// Create variables for a string builder
+			char buf[255];		// String buffer
+			int i = 0;  		// Current index in buffer
+			memset(&buf, 0, 255);
+			sprintf(&buf[i], "ROOM LIST:\n");
+			i += 11;
+			// Loop through each room, check if valid, and append to list
+			for (int j = 0; j < MAX_ROOMS; j++) {
+				if (rooms[j] != -1) {
+					sprintf(&buf[i], "ROOM %2d : %2d Users\n", j, rooms[j]);
+					i += 19;
+				}
+			}
+			send(clisockfd, buf, 255, 0);
+		} else if (strstr(buffer, "!NEW ROOM") != NULL) {
+			// Find the first empty room and assign it to the user
+			printf("User wants to create a new room...\n");
+			int room = -1;
+			for (int i = 0; i < MAX_ROOMS; i++) {
+				if (rooms[i] == -1) {
+					room = i;
 					break;
 				}
-				cur = cur->next;
 			}
+			char send_buf[255];
+			if (room == -1) {
+				// No empty rooms avaliable, tell the client
+				memset(send_buf, 0, 255);
+				sprintf(send_buf, "No empty rooms, please join an existing room.\n");
+				send(clisockfd, send_buf, 255, 0);
+				// close the connection
+				exit_status = -1;
+				break;
+
+			} else {
+				// assign the user the room
+				rooms[room] = 1;
+				memset(send_buf, 0, 255);
+				sprintf(send_buf, "Assigning to Room %d.\n", room);
+				send(clisockfd, send_buf, 255, 0);
+				USR * cur = head;
+				while (cur != NULL) {
+					if (clisockfd == cur->clisockfd) {
+						cur->room = room;
+						break;
+					}
+					cur = cur->next;
+				}
+			}
+		} else {
+			// Normal message, send to everyone in the same room
+			// we send the message to everyone except the sender
+			broadcast(clisockfd, buffer);
 		}
-
-		// we send the message to everyone except the sender
-		broadcast(clisockfd, buffer);
-
+		// Clear the buffer before receiving anything else
+		memset(buffer, 0, 255);
+		memset(send_buffer, 0, 255);
 		nrcv = recv(clisockfd, buffer, 255, 0);
 		if (nrcv < 0) error("ERROR recv() failed");
 	}
 
-	if (nrcv == 0) {
-		remove_item(clisockfd);
+	remove_item(clisockfd);
+	print_list();
+	// Run this only if the user was actually assigned a room
+	if (exit_status == 0)  {
 		updateRooms(clisockfd);
-		print_list();
 	}
-
 	close(clisockfd);
 	//-------------------------------
 
