@@ -17,7 +17,7 @@
 #define CYAN    "\x1b[36m"
 #define MAX_ROOMS 5
 #define MAX_USERS 5
-
+#define MAX_CONNECTIONS MAX_ROOMS * MAX_USERS
 void error(const char *msg) {
 	perror(msg);
 	exit(1);
@@ -25,18 +25,18 @@ void error(const char *msg) {
 
 typedef struct _USR {
 	int clisockfd;		// socket file descriptor
-	int room;					// room id for user
+	int room;			// room id for user
 	struct _USR* next;	// for linked list queue
 } USR;
-
+// Head node must always exist
 USR *head = NULL;
-USR *tail = NULL;
 
 /* Room idx corresponds to room number
  * value corresponds to number of users in room
  * -1 for empty room or invalid
  */
 int rooms[MAX_ROOMS];
+
 // print list of clisockfd's
 void print_list() {
 	USR *temp = head;
@@ -47,43 +47,72 @@ void print_list() {
 	}
 	printf("\n");
 }
+/**
+  * Add a tail to the end of the linked list
+  */
 void add_tail(int newclisockfd) {
+	printf("Socket %d connected.\n", newclisockfd);
+	// If head does not exist yet
 	if (head == NULL) {
 		head = (USR*) malloc(sizeof(USR));
 		head->clisockfd = newclisockfd;
 		head->next = NULL;
-		tail = head;
+		head->room = NULL;
 	} else {
-		tail->next = (USR*) malloc(sizeof(USR));
-		tail->next->clisockfd = newclisockfd;
-		tail->next->next = NULL;
-		tail = tail->next;
+		// find end of list (easier to maintain than keeping separate tail variable)
+		USR * cur = head;
+		while (cur->next != NULL) {
+			cur = cur->next;
+		}
+		USR * tmp = (USR*) malloc(sizeof(USR));
+		tmp->clisockfd = newclisockfd;
+		tmp->room = -1;
+		tmp->next = NULL;
+		cur->next = tmp;
 	}
 	print_list();
 }
-
+/**
+  * Removes a node from the linked list
+  */
 void remove_item(int clisockfd) {
 	USR *prev = NULL;
-	USR *temp = head;
+	USR *cur = head;
 
-	if (temp != NULL && temp->clisockfd == clisockfd) {
-		head = head->next;
-		free(temp);
+	// No clients connected, do nothing
+	if (cur == NULL) {
 		return;
-	} else {
-		while (temp != NULL && temp->clisockfd != clisockfd) {
-			prev = temp;
-			temp = temp->next;
+	} 
+
+	// Traverse through the linked list
+	// Find the desired ID
+	while(cur != NULL) {
+		// Entity found, remove the link
+		if (cur->clisockfd == clisockfd) {
+			printf("Socket %d disconnected.\n", clisockfd);
+			// If entity is the first
+			if (cur == head) {
+				if (cur->next == NULL) 
+				{
+					free(head);
+					head = NULL;
+				} else {
+					head = cur->next;
+					free(cur);
+				}
+			// Otherwise set prev.next to the current.next to destroy cur
+			} else {		
+				prev->next = cur->next;
+				free(cur);
+			}
+			break;
 		}
-
-		if (temp == NULL) {
-			return;
-		}
-
-		prev->next = temp->next;
-
-		free(temp);
+		// Set prev to cur and cur to cur.next
+		prev = cur;
+		cur = cur->next;
 	}
+	print_list();
+	return;
 }
 
 void initRooms() {
@@ -97,7 +126,7 @@ void initRooms() {
  */
 void updateRooms(int clisockfd) {
 	// when user is removed update the rooms
-	int room = 0;
+	int room = -1;
 	USR *cur = head;
 	while (cur != NULL) {
 		if (cur->clisockfd == clisockfd) {
@@ -106,10 +135,15 @@ void updateRooms(int clisockfd) {
 		}
 		cur = cur->next;
 	}
+	if (room < 0) {
+		printf("User does not belong to a room somehow...\n");
+		return;
+	}
 	rooms[room]--;
-	if (rooms[room] == 0) {
+	if (rooms[room] <= 0) {
 		rooms[room] = -1;
 	}
+	printf("Removed Socket %d from room %d.\n", clisockfd, room);
 }
 
 void listRooms() {
@@ -121,9 +155,12 @@ void listRooms() {
 		}
 	}
 }
-
+/**
+  * Traverse through linked list looking for the socket ID
+  * return the ID of the room the user is in, -1 if not found
+  */
 int getRoom(int fromfd) {
-	int room;
+	int room = -1;
 
 	USR* cur = head;
 	while (cur != NULL) {
@@ -161,7 +198,6 @@ void broadcast(int fromfd, char* message) {
 			int nsen = send(cur->clisockfd, buffer, nmsg, 0);
 			if (nsen != nmsg) error("ERROR send() failed");
 		}
-
 		cur = cur->next;
 	}
 }
@@ -171,6 +207,10 @@ typedef struct _ThreadArgs {
 	int room_num;
 } ThreadArgs;
 
+/**
+  * Thread for receiving messages from clients
+  * each client gets their own thread
+  */
 void* thread_main(void* args) {
 	// Exit status determines what functions are executed at disconnect
 	int exit_status = 0;
@@ -191,6 +231,7 @@ void* thread_main(void* args) {
 	//if (nrcv < 0) error("ERROR recv() failed");
 	char send_buffer[255];
 	memset(send_buffer, 0, 255);
+
 	while (nrcv > 0) {
 		if (strstr(buffer, "JOIN ROOM") != NULL) {
 			printf("User is attempting to join a room.\n");
@@ -258,12 +299,10 @@ void* thread_main(void* args) {
 					break;
 				}
 			}
-			char send_buf[255];
 			if (room == -1) {
 				// No empty rooms avaliable, tell the client
-				memset(send_buf, 0, 255);
-				sprintf(send_buf, "No empty rooms, please join an existing room.\n");
-				send(clisockfd, send_buf, 255, 0);
+				sprintf(send_buffer, "No empty rooms, please join an existing room.\n");
+				send(clisockfd, send_buffer, 255, 0);
 				// close the connection
 				exit_status = -1;
 				break;
@@ -271,9 +310,9 @@ void* thread_main(void* args) {
 			} else {
 				// assign the user the room
 				rooms[room] = 1;
-				memset(send_buf, 0, 255);
-				sprintf(send_buf, "Assigning to Room %d.\n", room);
-				send(clisockfd, send_buf, 255, 0);
+				sprintf(send_buffer, "Assigning to Room %d.\n", room);
+				send(clisockfd, send_buffer, 255, 0);
+				
 				USR * cur = head;
 				while (cur != NULL) {
 					if (clisockfd == cur->clisockfd) {
@@ -283,6 +322,9 @@ void* thread_main(void* args) {
 					cur = cur->next;
 				}
 			}
+		} else if (strlen(buffer) == 1) {
+			printf("User is disconnecting...\n");
+			break;
 		} else {
 			// Normal message, send to everyone in the same room
 			// we send the message to everyone except the sender
@@ -294,14 +336,13 @@ void* thread_main(void* args) {
 		nrcv = recv(clisockfd, buffer, 255, 0);
 		if (nrcv < 0) error("ERROR recv() failed");
 	}
-
-	remove_item(clisockfd);
-	print_list();
 	// Run this only if the user was actually assigned a room
 	if (exit_status == 0)  {
 		updateRooms(clisockfd);
 	}
+	remove_item(clisockfd);
 	close(clisockfd);
+	printf("Destroying thread.\n");
 	//-------------------------------
 
 	return NULL;
@@ -325,7 +366,10 @@ int main(int argc, char *argv[]) {
 	initRooms(); // initialize all rooms to -1
 
 	listen(sockfd, 5); // maximum number of connections = 5
-
+	printf("Starting chat server...\n");
+	head = (USR *) malloc(sizeof(USR));
+	head->clisockfd = -5555;
+	head->room = -5555;
 	while(1) {
 		struct sockaddr_in cli_addr;
 		socklen_t clen = sizeof(cli_addr);

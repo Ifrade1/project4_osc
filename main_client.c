@@ -21,6 +21,9 @@
 /** User name the client reports to the server */
 char user_name[25];
 int room_num;
+int clisockfd;
+pthread_t tid1;
+pthread_t tid2;
 
 void color(int random){
 	switch(random){
@@ -60,20 +63,20 @@ typedef struct _ThreadArgs {
  * Thread function that receives and prints messages from other clients
  */
 void* thread_main_recv(void* args) {
-	pthread_detach(pthread_self());
+	//pthread_detach(pthread_self());
 
-	int sockfd = ((ThreadArgs*) args)->clisockfd;
-	free(args);
+	int sockfd = clisockfd;
 
 	// keep receiving and displaying message from server
 	char buffer[512];
-	int n;
-
-	n = recv(sockfd, buffer, 512, 0);
+	int n = 999;
 	while (n > 0) {
 		memset(buffer, 0, 512);
 		n = recv(sockfd, buffer, 512, 0);
-		if (n < 0) error("ERROR recv() failed");
+		if (n < 0) {
+			error("ERROR recv() failed");
+			return -1;
+		}
 		printf("\n%s\n", buffer);
 	}
 
@@ -83,9 +86,9 @@ void* thread_main_recv(void* args) {
  * Thread function that handles user input and sending messages to the server
  */
 void* thread_main_send(void* args) {
-	pthread_detach(pthread_self());
+	//pthread_detach(pthread_self());
 
-	int sockfd = ((ThreadArgs*) args)->clisockfd;
+	int sockfd = clisockfd;
 	free(args);
 
 	// keep sending messages to the server
@@ -101,14 +104,19 @@ void* thread_main_send(void* args) {
 		memset(message, 0, 512);
 		fgets(buffer, 256, stdin);
 
-		if (strlen(buffer) == 1) break;
+		if (strlen(buffer) == 1) {
+			break;
+		}
 
 		sprintf(message, "[%s]: %s\0", user_name, buffer);
 		n = send(sockfd, message, strlen(message), 0);
-		if (n < 0) error("ERROR writing to socket");
+		if (n < 0) {
+			error("ERROR writing to socket");
+			return -1;
+		}
 	}
 
-	return NULL;
+	return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -117,6 +125,7 @@ int main(int argc, char *argv[]) {
 	srand(time(NULL));
 	int pick = rand() % 7;
 	color(pick);
+
 	if (argc < 2) error("Please speicify hostname");
 	if (argc == 3) {
 		if (strcmp(argv[2], "new") == 0) {
@@ -136,10 +145,12 @@ int main(int argc, char *argv[]) {
 
 	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sockfd < 0) error("ERROR opening socket");
+	clisockfd = sockfd;
 
 	struct sockaddr_in serv_addr;
 	socklen_t slen = sizeof(serv_addr);
 	memset((char*) &serv_addr, 0, sizeof(serv_addr));
+
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = inet_addr(argv[1]);
 	serv_addr.sin_port = htons(PORT_NUM);
@@ -222,30 +233,22 @@ int main(int argc, char *argv[]) {
 	printf("Enter a username: ");
 	fgets(user_name, 25, stdin);
 	strtok(user_name, "\n");
-	if (strlen(user_name) == 1) {
+	if (strlen(user_name) == 0) {
 		printf("No username specified, exiting...\n");
 		return 1;
 	} else {
 		printf("Username set to %s\n", user_name);
 	}
-
-	pthread_t tid1;
-	pthread_t tid2;
-
-	ThreadArgs* args;
-
-	args = (ThreadArgs*) malloc(sizeof(ThreadArgs));
-	args->clisockfd = sockfd;
-	pthread_create(&tid1, NULL, thread_main_send, (void*) args);
-
-	args = (ThreadArgs*) malloc(sizeof(ThreadArgs));
-	args->clisockfd = sockfd;
-	pthread_create(&tid2, NULL, thread_main_recv, (void*) args);
+	pthread_create(&tid1, NULL, thread_main_send, NULL);
+	// wait a bit to allow the thread to fully start
+	sleep(1);
+	pthread_create(&tid2, NULL, thread_main_recv, NULL);
 
 	// parent will wait for sender to finish (= user stop sending message and disconnect from server)
+	int exit_status;
 	pthread_join(tid1, NULL);
-
+	//pthread_join(tid2, NULL);
 	close(sockfd);
-
+	printf("Exiting...\n");
 	return 0;
 }
