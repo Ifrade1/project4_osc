@@ -179,24 +179,29 @@ int main(int argc, char *argv[]) {
 			int n = send(sockfd, buf, 64, 0);
 			n = recv(sockfd, buffer, 255, 0);
 			printf("%s\n", buffer);
-			printf("Enter room to join: ");
+			printf("Enter room to join or type 'new' if none available: ");
 			fgets(room_get, 16, stdin);
-
-			room_num = atoi(room_get);
-			sprintf(buf, "JOIN ROOM %d", room_num);
-			n = send(sockfd, buf, 64, 0);
-			if (n < 0) {
-				printf("Could not connect with the room!");
-				return -1;
+			if (strstr(room_get, "new") != NULL) {
+				// Move to the new room state
+				arg = 2;
+			} else {
+				room_num = atoi(room_get);
+				sprintf(buf, "JOIN ROOM %d", room_num);
+				n = send(sockfd, buf, 64, 0);
+				if (n < 0) {
+					printf("Could not connect with the room!");
+					return -1;
+				}
+				// wait for response
+				recv(sockfd, buffer, 255, 0);
+				printf("%s\n", buffer);
+				// Server disconnects us but we can still send a message and set
+				// a username, so we use this to gracefully stop the program before that happens
+				if (strstr(buffer, "ERROR") != NULL)
+					valid_connection = -1;
 			}
-			// wait for response
-			recv(sockfd, buffer, 255, 0);
-			printf("%s\n", buffer);
-			// Server disconnects us but we can still send a message and set
-			// a username, so we use this to gracefully stop the program before that happens
-			if (strstr(buffer, "ERROR") != NULL)
-				valid_connection = -1;
-		} else if (arg == 2) {
+		} 
+		if (arg == 2) {
 			char buffer[255];
 			// Tell server to create a new room
 			sprintf(buf, "!NEW ROOM");
