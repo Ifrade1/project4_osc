@@ -74,7 +74,6 @@ void* thread_main_recv(void* args) {
 		memset(buffer, 0, 512);
 		n = recv(sockfd, buffer, 512, 0);
 		if (n < 0) error("ERROR recv() failed");
-
 		printf("\n%s\n", buffer);
 	}
 
@@ -98,7 +97,6 @@ void* thread_main_send(void* args) {
 	while (1) {
 		// You will need a bit of control on your terminal
 		// console or GUI to have a nice input window.
-		printf("\nMessage: ");
 		memset(buffer, 0, 256);
 		memset(message, 0, 512);
 		fgets(buffer, 256, stdin);

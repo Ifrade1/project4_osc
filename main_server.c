@@ -30,7 +30,7 @@ typedef struct _USR {
 USR *head = NULL;
 USR *tail = NULL;
 
-// print list of clisockfd's
+// print list of clisockfd's`
 void print_list() {
 	USR *temp = head;
 	printf("List:\n");
@@ -159,11 +159,51 @@ void* thread_main(void* args) {
 				}
 				cur = cur->next;
 			}
+			memset(buffer, 0, 255);
+
+		} else if (strstr(buffer, "LIST") != NULL) {
+			printf("User requesting room list...");
+			// Send a list of rooms of the user who requested it.
+			// quick and dirty
+			USR * cur = head;
+			// assume max of 10 rooms because nobody is gonna use this for more
+			int allocated_rooms[10];
+			memset(allocated_rooms, -1, 10);
+			char send_buff[255];
+			// Store variables for buffer position for stringbuilder and current index of allocated_rooms array
+			int i = 0;		// so many
+			int x = 0;		// variables
+			int found = 0;
+			while (cur != NULL) {
+				// Check if room from linked list is already in the array
+				for (int z = 0; z < 10; z++) {
+					if (allocated_rooms[z] == cur->room) {
+						found = 1;
+						break;
+					}
+				}
+				if (!found) {
+					// Append 3 bytes to buffer
+					allocated_rooms[x] = cur->room;
+					sprintf(&send_buff[i], "%d", cur->room);
+					sprintf(&send_buff[i + 1], "%s", ", ");
+					i += 3;
+					x++;
+				}
+				cur = cur->next;
+				found = 0;
+			}
+			sprintf(&send_buff[i], "\n");
+
+			// Prepare the string to send to the user
+			int nsen = send(clisockfd, "Avaliable rooms:\n", 17, 0);
+			send(clisockfd, send_buff, 255, 0);
+			memset(buffer, 0, 255);
 		}
 
 		// we send the message to everyone except the sender
 		broadcast(clisockfd, buffer);
-
+		memset(buffer, 0, 255);
 		nrcv = recv(clisockfd, buffer, 255, 0);
 		if (nrcv < 0) error("ERROR recv() failed");
 	}
